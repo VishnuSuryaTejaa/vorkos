@@ -336,9 +336,13 @@ function App() {
             <span className="footer-dev">Developed by <strong>Vishnu Surya Teja</strong> · <a href="https://mail.google.com/mail/?view=cm&to=Vishnusuryatejavst@gmail.com" target="_blank" rel="noreferrer" className="footer-contact">Contact</a></span>
             <div className="memory-controls">
               <span className="memory-badge"><Database size={10} /> {memoryCount} indexed</span>
-              {memoryCount > 0 && (
-                <button onClick={handleClearMemory} className="clear-memory-btn"><Trash2 size={10} /> Purge</button>
-              )}
+              <button 
+                onClick={handleClearMemory} 
+                disabled={memoryCount === 0}
+                className="clear-memory-btn"
+              >
+                <Trash2 size={12} /> Purge
+              </button>
             </div>
           </div>
         </footer>

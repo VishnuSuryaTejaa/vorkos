@@ -178,122 +178,130 @@ def analyze_jobs_with_groq(job_list, job_title, location, api_key, time_filter="
     """
     UPGRADE 2: Now includes Resume Matchmaker for Fit Score + Gap analysis.
     Uses deep-read content when available.
+    Automatically falls back to backup API key if rate limit is hit.
     """
     if not job_list:
         return "No jobs found to analyze."
 
     print("⚡ Groq Forensic Analysis starting...")
 
-    client = Groq(api_key=api_key)
+    # Get backup API key from environment
+    backup_api_key = os.environ.get("GROQ_API_KEY_BACKUP")
+    
+    # Function to attempt analysis with a given API key
+    def attempt_analysis(key_to_use, is_backup=False):
+        client = Groq(api_key=key_to_use)
+        
+        if is_backup:
+            print("🔄 Retrying with backup API key...")
 
-    # --- 1. Prepare Evidence (with deep content when available) ---
-    job_text = ""
-    for i, job in enumerate(job_list):
-        full_content = job.get('full_content', job.get('body', ''))
-        job_text += f"""
-        [CANDIDATE LINK #{i+1}]
-        - URL: {job['href']}
-        - TITLE: {job['title']}
-        - CONTENT: {full_content[:2500]}
-        - NEW: {"YES ✨" if job.get('is_new', True) else "PREVIOUSLY SEEN"}
+        # --- 1. Prepare Evidence (with deep content when available) ---
+        job_text = ""
+        for i, job in enumerate(job_list):
+            full_content = job.get('full_content', job.get('body', ''))
+            job_text += f"""
+            [CANDIDATE LINK #{i+1}]
+            - URL: {job['href']}
+            - TITLE: {job['title']}
+            - CONTENT: {full_content[:2500]}
+            - NEW: {"YES ✨" if job.get('is_new', True) else "PREVIOUSLY SEEN"}
+            """
+
+        # --- 2. The Persona ---
+        freshness_persona = {
+            "past_day": "If a job looks older than 24 HOURS, discard it immediately.",
+            "past_week": "If a job looks older than 7 DAYS, discard it immediately.",
+            "past_month": "If a job looks older than 30 DAYS, discard it immediately.",
+        }
+
+        # Job type filter instruction
+        job_type_labels = {
+            "internship": "ONLY include INTERNSHIP positions. Reject full-time, contract, or senior roles.",
+            "fulltime": "ONLY include FULL-TIME positions. Reject internships, part-time, or contract roles.",
+            "parttime": "ONLY include PART-TIME positions. Reject full-time or internship roles.",
+            "contract": "ONLY include CONTRACT positions. Reject permanent or internship roles.",
+            "freelance": "ONLY include FREELANCE or REMOTE CONTRACT positions.",
+            "any": "Include any job type (internship, full-time, contract, etc.).",
+        }
+        job_type_instruction = job_type_labels.get(job_type, job_type_labels["any"])
+
+        system_prompt = f"""
+        You are an Elite Technical Recruiter and Forensic Job Analyst.
+        Your standard is perfection. You DO NOT tolerate old, stale, or irrelevant results.
+
+        Your Prime Directives:
+        1. FILTER RUTHLESSLY: {freshness_persona.get(time_filter, freshness_persona["past_week"])}
+        2. JOB TYPE FILTER: {job_type_instruction}
+        3. DETECT SEO SPAM: Articles, LinkedIn profiles (not job posts), forums, tutorials — BURN THEM.
+        4. PRIORITIZE "NEW" JOBS: Jobs marked "NEW ✨" should rank higher.
+        5. CHECK FOR "CLOSED": If content says "closed", "expired", "position filled" — REJECT.
+        6. NEVER INVENT: If fewer than 3 good jobs exist, stop early. Do NOT hallucinate.
         """
 
-    # --- 2. The Persona ---
-    freshness_persona = {
-        "past_day": "If a job looks older than 24 HOURS, discard it immediately.",
-        "past_week": "If a job looks older than 7 DAYS, discard it immediately.",
-        "past_month": "If a job looks older than 30 DAYS, discard it immediately.",
-    }
+        # --- 3. Resume matching section ---
+        resume_section = ""
+        if resume_text and resume_text.strip():
+            resume_section = f"""
 
-    # Job type filter instruction
-    job_type_labels = {
-        "internship": "ONLY include INTERNSHIP positions. Reject full-time, contract, or senior roles.",
-        "fulltime": "ONLY include FULL-TIME positions. Reject internships, part-time, or contract roles.",
-        "parttime": "ONLY include PART-TIME positions. Reject full-time or internship roles.",
-        "contract": "ONLY include CONTRACT positions. Reject permanent or internship roles.",
-        "freelance": "ONLY include FREELANCE or REMOTE CONTRACT positions.",
-        "any": "Include any job type (internship, full-time, contract, etc.).",
-    }
-    job_type_instruction = job_type_labels.get(job_type, job_type_labels["any"])
+        📋 CANDIDATE RESUME:
+        {resume_text[:2000]}
 
-    system_prompt = f"""
-    You are an Elite Technical Recruiter and Forensic Job Analyst.
-    Your standard is perfection. You DO NOT tolerate old, stale, or irrelevant results.
+        ADDITIONAL TASK — RESUME MATCHING:
+        For each job, compare the requirements against the candidate's resume and provide:
+        - **Fit Score (0-100%)**: How well the candidate matches
+        - **✅ Matches**: Skills/experience the candidate HAS that the job requires
+        - **⚠️ Gaps**: Skills the job requires but the candidate LACKS
+        """
 
-    Your Prime Directives:
-    1. FILTER RUTHLESSLY: {freshness_persona.get(time_filter, freshness_persona["past_week"])}
-    2. JOB TYPE FILTER: {job_type_instruction}
-    3. DETECT SEO SPAM: Articles, LinkedIn profiles (not job posts), forums, tutorials — BURN THEM.
-    4. PRIORITIZE "NEW" JOBS: Jobs marked "NEW ✨" should rank higher.
-    5. CHECK FOR "CLOSED": If content says "closed", "expired", "position filled" — REJECT.
-    6. NEVER INVENT: If fewer than 3 good jobs exist, stop early. Do NOT hallucinate.
-    """
+        # Job type label for display
+        type_display = f" ({job_type.upper()})" if job_type != "any" else ""
 
-    # --- 3. Resume matching section ---
-    resume_section = ""
-    if resume_text and resume_text.strip():
-        resume_section = f"""
+        # --- 4. The Mission ---
+        user_prompt = f"""
+        MISSION: Find the top 5 ACTIVE{type_display} job openings for '{job_title}' in '{location}'.
+        CURRENT DATE: {datetime.date.today().strftime("%B %d, %Y")}
 
-    📋 CANDIDATE RESUME:
-    {resume_text[:2000]}
+        Here is the raw data stream from the web:
+        {job_text}
 
-    ADDITIONAL TASK — RESUME MATCHING:
-    For each job, compare the requirements against the candidate's resume and provide:
-    - **Fit Score (0-100%)**: How well the candidate matches
-    - **✅ Matches**: Skills/experience the candidate HAS that the job requires
-    - **⚠️ Gaps**: Skills the job requires but the candidate LACKS
-    """
+        --------------------------------------------------
+        YOUR ANALYSIS PROCESS (Mental Scratchpad):
+        For EACH candidate link:
+        1. Does the content say "posted 5 months ago", "closed", "expired", "6yr"? → REJECT.
+        2. Is the title a person's name/profile (not a job)? → REJECT.
+        3. Is the URL a blog, tutorial, or forum? → REJECT.
+        4. Is it from a job board or company careers page? → STRONG KEEP.
+        5. Does it mention tech stacks, "hiring", "apply now", salary? → KEEP.
+        6. Does the job type match "{job_type}"? → If not, REJECT.
+        --------------------------------------------------
+        {resume_section}
 
-    # Job type label for display
-    type_display = f" ({job_type.upper()})" if job_type != "any" else ""
+        FINAL OUTPUT FORMAT:
 
-    # --- 4. The Mission ---
-    user_prompt = f"""
-    MISSION: Find the top 5 ACTIVE{type_display} job openings for '{job_title}' in '{location}'.
-    CURRENT DATE: {datetime.date.today().strftime("%B %d, %Y")}
+        ### 🏆 TOP CANDIDATE [1]
+        **Job Title:** [Exact Title]
+        **Company:** [Company Name]
+        **Type:** [Internship / Full-Time / Contract / etc.]
+        **Location:** [Where]
+        **Freshness:** [e.g. "Posted today", "2 days ago"]
+        {
+        '**Fit Score:** [0-100%]' if resume_text else ''
+        }
+        **Why it matches:** [1 sentence]
+        {
+        '**✅ Matches:** [Skills you have that match]' if resume_text else ''
+        }
+        {
+        '**⚠️ Gaps:** [Skills required but missing from resume]' if resume_text else ''
+        }
+        **Direct Link:** [Full URL]
 
-    Here is the raw data stream from the web:
-    {job_text}
+        (Repeat for Top 2-5. Stop early if fewer exist. DO NOT INVENT JOBS.)
 
-    --------------------------------------------------
-    YOUR ANALYSIS PROCESS (Mental Scratchpad):
-    For EACH candidate link:
-    1. Does the content say "posted 5 months ago", "closed", "expired", "6yr"? → REJECT.
-    2. Is the title a person's name/profile (not a job)? → REJECT.
-    3. Is the URL a blog, tutorial, or forum? → REJECT.
-    4. Is it from a job board or company careers page? → STRONG KEEP.
-    5. Does it mention tech stacks, "hiring", "apply now", salary? → KEEP.
-    6. Does the job type match "{job_type}"? → If not, REJECT.
-    --------------------------------------------------
-    {resume_section}
+        If ZERO real job postings pass your filters, say:
+        "❌ No fresh, legitimate job postings found. Try 'Past Month' filter or search directly on LinkedIn/Indeed."
+        """
 
-    FINAL OUTPUT FORMAT:
-
-    ### 🏆 TOP CANDIDATE [1]
-    **Job Title:** [Exact Title]
-    **Company:** [Company Name]
-    **Type:** [Internship / Full-Time / Contract / etc.]
-    **Location:** [Where]
-    **Freshness:** [e.g. "Posted today", "2 days ago"]
-    {
-    '**Fit Score:** [0-100%]' if resume_text else ''
-    }
-    **Why it matches:** [1 sentence]
-    {
-    '**✅ Matches:** [Skills you have that match]' if resume_text else ''
-    }
-    {
-    '**⚠️ Gaps:** [Skills required but missing from resume]' if resume_text else ''
-    }
-    **Direct Link:** [Full URL]
-
-    (Repeat for Top 2-5. Stop early if fewer exist. DO NOT INVENT JOBS.)
-
-    If ZERO real job postings pass your filters, say:
-    "❌ No fresh, legitimate job postings found. Try 'Past Month' filter or search directly on LinkedIn/Indeed."
-    """
-
-    try:
         chat_completion = client.chat.completions.create(
             messages=[
                 {"role": "system", "content": system_prompt},
@@ -303,5 +311,26 @@ def analyze_jobs_with_groq(job_list, job_title, location, api_key, time_filter="
             temperature=0.3,
         )
         return chat_completion.choices[0].message.content
+
+    # Try with primary key first
+    try:
+        return attempt_analysis(api_key, is_backup=False)
     except Exception as e:
-        return f"Error in Groq analysis: {str(e)}"
+        error_str = str(e)
+        
+        # Check if it's a rate limit error (429)
+        if "429" in error_str or "rate_limit_exceeded" in error_str.lower():
+            print(f"⚠️ Rate limit hit on primary key: {error_str[:100]}...")
+            
+            # Try backup key if available
+            if backup_api_key:
+                try:
+                    return attempt_analysis(backup_api_key, is_backup=True)
+                except Exception as backup_error:
+                    return f"Error in Groq analysis (backup also failed): {str(backup_error)}"
+            else:
+                return f"Error in Groq analysis: {error_str}"
+        else:
+            # For non-rate-limit errors, return immediately
+            return f"Error in Groq analysis: {error_str}"
+
