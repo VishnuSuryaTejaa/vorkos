@@ -1,0 +1,9 @@
+flask
+flask-cors
+ddgs
+google-generativeai
+groq
+tavily-python
+python-dotenv
+requests
+PyPDF2 
