@@ -200,7 +200,7 @@ def analyze_jobs_with_groq(job_list, job_title, location, api_key, time_filter="
         for i, job in enumerate(job_list):
             full_content = job.get('full_content', job.get('body', ''))
             job_text += f"""
-            [CANDIDATE LINK #{i+1}]
+            [JOB MATCH #{i+1}]
             - URL: {job['href']}
             - TITLE: {job['title']}
             - CONTENT: {full_content[:2500]}
@@ -266,7 +266,7 @@ def analyze_jobs_with_groq(job_list, job_title, location, api_key, time_filter="
 
         --------------------------------------------------
         YOUR ANALYSIS PROCESS (Mental Scratchpad):
-        For EACH candidate link:
+        For EACH job match:
         1. Does the content say "posted 5 months ago", "closed", "expired", "6yr"? → REJECT.
         2. Is the title a person's name/profile (not a job)? → REJECT.
         3. Is the URL a blog, tutorial, or forum? → REJECT.
@@ -278,7 +278,7 @@ def analyze_jobs_with_groq(job_list, job_title, location, api_key, time_filter="
 
         FINAL OUTPUT FORMAT:
 
-        ### 🏆 TOP CANDIDATE [1]
+        ### 🏆 TOP JOB MATCH [1]
         **Job Title:** [Exact Title]
         **Company:** [Company Name]
         **Type:** [Internship / Full-Time / Contract / etc.]
