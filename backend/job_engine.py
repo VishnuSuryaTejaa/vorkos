@@ -11,6 +11,43 @@ from job_memory import filter_new_jobs, mark_jobs_seen
 TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY")
 tavily_client = TavilyClient(api_key=TAVILY_API_KEY) if TAVILY_API_KEY else None
 
+# ==========================================
+# API KEY MANAGER (Round Robin + Failover)
+# ==========================================
+class KeyManager:
+    def __init__(self):
+        self.keys = []
+        # Load keys from environment
+        primary = os.environ.get("GROQ_API_KEY")
+        backup = os.environ.get("GROQ_API_KEY_BACKUP")
+        
+        if primary: 
+            self.keys.append({"key": primary, "name": "Primary 🔑"})
+        if backup: 
+            self.keys.append({"key": backup, "name": "Backup 🛡️"})
+            
+        self.index = 0
+        print(f"🔑 KeyManager initialized with {len(self.keys)} keys.")
+    
+    def get_next_key(self):
+        """Get the next key in rotation (Round Robin)"""
+        if not self.keys: return None, "No Keys"
+        
+        selected = self.keys[self.index]
+        # Rotate index for next time
+        self.index = (self.index + 1) % len(self.keys)
+        return selected["key"], selected["name"]
+        
+    def get_failover_key(self, current_key):
+        """Get a key that isn't the current one (for retries)"""
+        for k in self.keys:
+            if k["key"] != current_key:
+                return k["key"], k["name"]
+        return None, None
+
+# Global instance
+key_manager = KeyManager()
+
 # Time limit mapping
 TIME_LIMITS = {
     "past_day": "d",
@@ -185,17 +222,14 @@ def analyze_jobs_with_groq(job_list, job_title, location, api_key, time_filter="
 
     print("⚡ Groq Forensic Analysis starting...")
 
-    # Get backup API key from environment
-    backup_api_key = os.environ.get("GROQ_API_KEY_BACKUP")
-    
-    # Function to attempt analysis with a given API key
-    def attempt_analysis(key_to_use, is_backup=False):
-        client = Groq(api_key=key_to_use)
-        
-        if is_backup:
-            print("🔄 Retrying with backup API key...")
+    print("⚡ Groq Forensic Analysis starting...")
 
-        # --- 1. Prepare Evidence (with deep content when available) ---
+    # Define the core analysis function
+    def execute_analysis(api_key, key_name):
+        print(f"🤖 Agent activated using {key_name}...")
+        client = Groq(api_key=api_key)
+        
+        # --- 1. Prepare Evidence ---
         job_text = ""
         for i, job in enumerate(job_list):
             full_content = job.get('full_content', job.get('body', ''))
@@ -253,7 +287,7 @@ def analyze_jobs_with_groq(job_list, job_title, location, api_key, time_filter="
         - **⚠️ Gaps**: Skills the job requires but the candidate LACKS
         """
 
-        # Job type label for display
+        # Job type display
         type_display = f" ({job_type.upper()})" if job_type != "any" else ""
 
         # --- 4. The Mission ---
@@ -284,16 +318,16 @@ def analyze_jobs_with_groq(job_list, job_title, location, api_key, time_filter="
         **Type:** [Internship / Full-Time / Contract / etc.]
         **Location:** [Where]
         **Freshness:** [e.g. "Posted today", "2 days ago"]
-        {
+        {{
         '**Fit Score:** [0-100%]' if resume_text else ''
-        }
+        }}
         **Why it matches:** [1 sentence]
-        {
+        {{
         '**✅ Matches:** [Skills you have that match]' if resume_text else ''
-        }
-        {
+        }}
+        {{
         '**⚠️ Gaps:** [Skills required but missing from resume]' if resume_text else ''
-        }
+        }}
         **Direct Link:** [Full URL]
 
         (Repeat for Top 2-5. Stop early if fewer exist. DO NOT INVENT JOBS.)
@@ -312,25 +346,35 @@ def analyze_jobs_with_groq(job_list, job_title, location, api_key, time_filter="
         )
         return chat_completion.choices[0].message.content
 
-    # Try with primary key first
+    # --- EXECUTION STRATEGY: Round Robin + Failover ---
+    
+    # 1. Get the assigned key for this request (Round Robin)
+    current_key, key_name = key_manager.get_next_key()
+    
+    if not current_key:
+        return "❌ Logic Error: No API keys configured in backend."
+
     try:
-        return attempt_analysis(api_key, is_backup=False)
+        return execute_analysis(current_key, key_name)
     except Exception as e:
         error_str = str(e)
         
-        # Check if it's a rate limit error (429)
-        if "429" in error_str or "rate_limit_exceeded" in error_str.lower():
-            print(f"⚠️ Rate limit hit on primary key: {error_str[:100]}...")
+        # Check for Rate Limit (429)
+        if "429" in error_str or "rate_limit" in error_str.lower():
+            print(f"⚠️ {key_name} hit RATE LIMIT! initiating failover protocol...")
             
-            # Try backup key if available
-            if backup_api_key:
+            # 2. Get the FAILOVER Key
+            failover_key, failover_name = key_manager.get_failover_key(current_key)
+            
+            if failover_key:
+                print(f"🔄 Failover: Retrying with {failover_name}...")
                 try:
-                    return attempt_analysis(backup_api_key, is_backup=True)
-                except Exception as backup_error:
-                    return f"Error in Groq analysis (backup also failed): {str(backup_error)}"
+                    return execute_analysis(failover_key, failover_name)
+                except Exception as e2:
+                    return f"❌ Critical Failure: Both API keys failed. Error: {str(e2)}"
             else:
-                return f"Error in Groq analysis: {error_str}"
-        else:
-            # For non-rate-limit errors, return immediately
-            return f"Error in Groq analysis: {error_str}"
+                return f"❌ Rate limit hit and no backup key available. Error: {error_str}"
+        
+        # Return other errors immediately
+        return f"❌ Analysis Error: {error_str}"
 
