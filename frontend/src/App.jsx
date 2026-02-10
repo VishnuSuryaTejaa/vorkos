@@ -43,10 +43,13 @@ function App() {
   const [showRaw, setShowRaw] = useState(false)
   const fileInputRef = useRef(null)
 
+  // API Configuration
+  const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:5001'
+
   useEffect(() => {
     const fetchOptions = async () => {
       try {
-        const res = await axios.get('http://127.0.0.1:5001/api/options')
+        const res = await axios.get(`${API_BASE_URL}/api/options`)
         setJobRoles(res.data.job_roles)
         setLocations(res.data.locations)
         setTimeFilters(res.data.time_filters || [])
@@ -70,7 +73,7 @@ function App() {
     e.preventDefault()
     setLoading(true); setError(null); setResults(null)
     try {
-      const res = await axios.post('http://127.0.0.1:5001/api/hunt', { job_title: jobTitle, location, time_filter: timeFilter, job_type: jobType })
+      const res = await axios.post(`${API_BASE_URL}/api/hunt`, { job_title: jobTitle, location, time_filter: timeFilter, job_type: jobType })
       setResults(res.data)
       setMemoryCount(prev => prev + (res.data.new_jobs || 0))
     } catch (err) {
@@ -85,14 +88,14 @@ function App() {
     setResumeStatus('uploading')
     const formData = new FormData(); formData.append('file', file)
     try {
-      const res = await axios.post('http://127.0.0.1:5001/api/resume/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+      const res = await axios.post(`${API_BASE_URL}/api/resume/upload`, formData, { headers: { 'Content-Type': 'multipart/form-data' } })
       setResumeStatus('uploaded')
       setResumePreview(`${file.name} — ${res.data.pages} page(s), ${res.data.length} chars analyzed`)
     } catch (err) { setResumeStatus('error'); setResumePreview(err.response?.data?.error || 'Calibration failed') }
   }
 
   const handleClearMemory = async () => {
-    try { await axios.post('http://127.0.0.1:5001/api/memory/clear'); setMemoryCount(0) } catch { }
+    try { await axios.post(`${API_BASE_URL}/api/memory/clear`); setMemoryCount(0) } catch { }
   }
 
   return (
