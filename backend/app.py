@@ -12,7 +12,9 @@ import io
 import PyPDF2
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load .env from parent directory (where the actual .env file is)
+env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '.env')
+load_dotenv(env_path)
 
 app = Flask(__name__)
 

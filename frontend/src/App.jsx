@@ -94,9 +94,20 @@ function App() {
     } catch (err) { setResumeStatus('error'); setResumePreview(err.response?.data?.error || 'Calibration failed') }
   }
 
+
   const handleClearMemory = async () => {
-    try { await axios.post(`${API_BASE_URL}/api/memory/clear`); setMemoryCount(0) } catch { }
+    try {
+      await axios.post(`${API_BASE_URL}/api/memory/clear`)
+      // Fetch fresh count from server to ensure sync
+      const res = await axios.get(`${API_BASE_URL}/api/options`)
+      setMemoryCount(res.data.memory_count || 0)
+      console.log('✅ Memory cleared successfully')
+    } catch (err) {
+      console.error('Failed to clear memory:', err)
+      alert('Failed to clear memory. Please try again.')
+    }
   }
+
 
   return (
     <div className="app-container">
@@ -336,8 +347,8 @@ function App() {
             <span className="footer-dev">Developed by <strong>Vishnu Surya Teja</strong> · <a href="https://mail.google.com/mail/?view=cm&to=Vishnusuryatejavst@gmail.com" target="_blank" rel="noreferrer" className="footer-contact">Contact</a></span>
             <div className="memory-controls">
               <span className="memory-badge"><Database size={10} /> {memoryCount} indexed</span>
-              <button 
-                onClick={handleClearMemory} 
+              <button
+                onClick={handleClearMemory}
                 disabled={memoryCount === 0}
                 className="clear-memory-btn"
               >
