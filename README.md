@@ -62,7 +62,9 @@ pip install -r requirements.txt
 # Configure Environment
 # Create a .env file in the root directory
 echo "GROQ_API_KEY=your_groq_key_here" >> .env
+echo "GROQ_API_KEY_BACKUP=your_backup_groq_key_here" >> .env
 echo "TAVILY_API_KEY=your_tavily_key_here" >> .env
+echo "JINA_API_KEY=your_jina_key_here" >> .env
 ```
 
 ### 3. Frontend Setup
