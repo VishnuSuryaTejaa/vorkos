@@ -111,8 +111,8 @@ def fetch_full_job_content(url):
             "Accept": "text/plain"
         })
         if response.status_code == 200:
-            # Limit to 2000 chars to save Groq tokens (was 3000)
-            text = response.text[:2000]
+            # Limit to 1500 chars to save Groq tokens (was 2000)
+            text = response.text[:1500]
             return text
         return ""
     except Exception as e:
@@ -377,7 +377,7 @@ def analyze_jobs_with_groq(job_list, job_title, location, api_key, time_filter="
                 except Exception as e2:
                     return f"❌ Critical Failure: Both API keys failed. Error: {str(e2)}"
             else:
-                return f"❌ Rate limit hit and no backup key available. Error: {error_str}"
+                return f"❌ Rate limit hit. I only have {len(key_manager.keys)} API Key(s) loaded. Please CHECK Configuration."
         
         # Return other errors immediately
         return f"❌ Analysis Error: {error_str}"
