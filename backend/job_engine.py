@@ -20,11 +20,14 @@ class KeyManager:
         # Load keys from environment
         primary = os.environ.get("GROQ_API_KEY")
         backup = os.environ.get("GROQ_API_KEY_BACKUP")
+        backup2 = os.environ.get("GROQ_API_KEY_2")
         
         if primary: 
             self.keys.append({"key": primary, "name": "Primary 🔑"})
         if backup: 
-            self.keys.append({"key": backup, "name": "Backup 🛡️"})
+            self.keys.append({"key": backup, "name": "Backup 1 🛡️"})
+        if backup2: 
+            self.keys.append({"key": backup2, "name": "Backup 2 🛡️"})
             
         self.index = 0
         print(f"🔑 KeyManager initialized with {len(self.keys)} keys.")
@@ -108,8 +111,8 @@ def fetch_full_job_content(url):
             "Accept": "text/plain"
         })
         if response.status_code == 200:
-            # Limit to 3000 chars to save Groq tokens
-            text = response.text[:3000]
+            # Limit to 2000 chars to save Groq tokens (was 3000)
+            text = response.text[:2000]
             return text
         return ""
     except Exception as e:
@@ -117,10 +120,11 @@ def fetch_full_job_content(url):
         return ""
 
 
-def deep_read_jobs(jobs, max_jobs=8):
+def deep_read_jobs(jobs, max_jobs=6):
     """
     UPGRADE 1: For the top N jobs, fetch full page content in parallel.
-    This gives the AI 3000 chars of context instead of ~160 char snippets.
+    This gives the AI 2000 chars of context instead of ~160 char snippets.
+    Reduced max_jobs from 8 to 6 to save tokens and avoid Rate Limits.
     """
     print(f"📖 Deep reading top {min(len(jobs), max_jobs)} job pages...")
 

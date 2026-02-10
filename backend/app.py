@@ -245,7 +245,7 @@ def hunt_jobs():
 
     # --- STEP 3: Deep Reader ---
     if new_jobs:
-        all_jobs = deep_read_jobs(all_jobs, max_jobs=8)
+        all_jobs = deep_read_jobs(all_jobs, max_jobs=5)
 
     # --- STEP 4: AI Analysis with Resume ---
     resume_text = USER_RESUME.get("text", "")
