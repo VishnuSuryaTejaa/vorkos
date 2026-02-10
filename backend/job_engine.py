@@ -2,7 +2,7 @@ import datetime
 import re
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from ddgs import DDGS
+from duckduckgo_search import DDGS
 from groq import Groq
 from job_memory import filter_new_jobs, mark_jobs_seen
 
