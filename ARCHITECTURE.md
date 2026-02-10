@@ -6,13 +6,13 @@
 
 ## What Is Vorkos?
 
-**Vorkos** is an **Autonomous Job Aggregator** — an AI agent that deploys parallel scouts across the web, deep-reads full job descriptions, and uses LLM intelligence to curate precision-matched results.
+**Vorkos** is an **Autonomous Job Aggregator** — an AI agent that deploys parallel scouts across the web, deep-reads full job descriptions, and uses LLM intelligence to curate precision-matched results. Now powered by **Tavily AI Search** for superior results.
 
 | Term | Applies? | Explanation |
 |------|:--------:|-------------|
 | **AI Agent** | ✅ | Perceives (web search), reasons (LLM analysis), acts (curated results) |
 | **Agentic Pipeline** | ✅ | 5-step autonomous pipeline: Scout → Memory → Deep Read → Analysis → Store |
-| **LLM-Powered Tool** | ✅ | Llama 3.3 70B via Groq for intelligent reasoning |
+| **LLM-Powered Tool** | ✅ | Llama 3.3 70B via Groq + **Automatic Rate Limit Fallback** |
 | **RAG (Lightweight)** | ⚠️ | Retrieves web data, then generates — no vector DB |
 
 ---
@@ -42,18 +42,19 @@
 │  ┌──────────────────────────────────────────────────┐     │
 │  │          5-STEP AGENTIC PIPELINE                  │     │
 │  │                                                   │     │
-│  │  1. PARALLEL SCOUT (DuckDuckGo × 3 threads)      │     │
+│  │  1. SMART SCOUT (Tavily AI Search API)            │     │
 │  │  2. MEMORY CHECK (SQLite deduplication)           │     │
 │  │  3. DEEP READER (Jina AI full-text extraction)    │     │
 │  │  4. AI ANALYSIS (Groq + Llama 3.3 70B)           │     │
+│  │     ↳ Backup API Key Fallback (on 429 error)      │     │
 │  │  5. MEMORY STORE (Index new jobs)                 │     │
 │  └──────────────────────────────────────────────────┘     │
 └──────────────────────────────────────────────────────────┘
          │                    │                  │
          ▼                    ▼                  ▼
   ┌─────────────┐    ┌──────────────┐    ┌─────────────┐
-  │  DuckDuckGo  │    │  Groq Cloud   │    │  Jina AI    │
-  │  × 3 threads │    │  Llama 3.3    │    │  Reader     │
+  │  Tavily AI   │    │  Groq Cloud   │    │  Jina AI    │
+  │  Search API  │    │  Llama 3.3    │    │  Reader     │
   └─────────────┘    └──────────────┘    └─────────────┘
 ```
 
@@ -66,7 +67,7 @@
 | `/api/options` | GET | Dropdown data: 45+ roles, 9 regions, types, filters, memory count |
 | `/api/hunt` | POST | Deploy agents — runs full 5-step pipeline |
 | `/api/resume/upload` | POST | Upload PDF, extract via PyPDF2 |
-| `/api/memory/clear` | POST | Purge indexed job memory |
+| `/api/memory/clear` | POST | Purge indexed job memory (refreshes UI count) |
 
 ---
 
@@ -74,12 +75,12 @@
 
 | File | Role |
 |------|------|
-| `app.py` | Flask orchestrator |
-| `job_engine.py` | Core intelligence: search, deep reading, AI analysis |
-| `job_memory.py` | SQLite memory layer |
-| `App.jsx` | React UI — Vorkos command center |
-| `index.css` | Sunrise/sunset dark theme |
-| `index.html` | HTML shell — Vorkos title, ⚡ favicon |
+| `backend/app.py` | Flask orchestrator |
+| `backend/job_engine.py` | Core intelligence: Tavily search, Jina reading, Groq analysis (with backup key fallback) |
+| `backend/job_memory.py` | SQLite memory layer |
+| `frontend/src/App.jsx` | React UI — Vorkos command center |
+| `frontend/src/index.css` | Sunrise/sunset dark theme |
+| `frontend/index.html` | HTML shell — Vorkos title, ⚡ favicon |
 
 ---
 
@@ -88,7 +89,7 @@
 | Component | Technology | Cost |
 |-----------|-----------|:----:|
 | Web Server | Flask | Free |
-| Web Search | ddgs (DuckDuckGo) × 3 threads | Free |
+| Web Search | **Tavily AI Search API** | Free Tier |
 | AI / LLM | Groq + Llama 3.3 70B | Free |
 | Deep Reader | Jina AI Reader | Free |
 | Resume Parser | PyPDF2 | Free |
@@ -119,3 +120,4 @@
 |------|-------|
 | DM Sans | Body, labels, buttons |
 | JetBrains Mono | Stats, badges, code |
+
