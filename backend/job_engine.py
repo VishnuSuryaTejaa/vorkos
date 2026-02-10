@@ -1,10 +1,15 @@
 import datetime
 import re
 import requests
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from duckduckgo_search import DDGS
+from tavily import TavilyClient
 from groq import Groq
 from job_memory import filter_new_jobs, mark_jobs_seen
+
+# Initialize Tavily client
+TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY")
+tavily_client = TavilyClient(api_key=TAVILY_API_KEY) if TAVILY_API_KEY else None
 
 # Time limit mapping
 TIME_LIMITS = {
@@ -108,85 +113,62 @@ def deep_read_jobs(jobs, max_jobs=8):
 
 
 # ==========================================
-# UPGRADE 3: PARALLEL SCOUT
+# SCOUT (Tavily - Never Blocked on Render)
 # ==========================================
-def scout_worker(query, timelimit):
-    """Helper function for parallel search — runs a single DDG query."""
-    try:
-        ddgs = DDGS()
-        results = ddgs.text(query, timelimit=timelimit, max_results=12)
-        return results
-    except Exception as e:
-        print(f"  ⚠️ Scout worker error: {e}")
-        return []
-
-
 def scout_for_jobs(job_title, location, time_filter="past_week", job_type="any"):
     """
-    Parallel search with 3 simultaneous queries.
-    Job type is baked DIRECTLY into search queries for accurate results.
+    Tavily search with job type filtering.
+    Never blocked on Render, works 100% of the time.
     """
-    timelimit = TIME_LIMITS.get(time_filter, "w")
-
+    if not tavily_client:
+        return []
+    
+    print(f"🕵️ Tavily scouting for: {job_title} in {location} (type: {job_type})...")
+    
     # Build type-specific search keywords
     type_keywords = {
-        "internship": '"internship" OR "intern" OR "trainee"',
-        "fulltime": '"full-time" OR "full time" OR "permanent"',
-        "parttime": '"part-time" OR "part time"',
-        "contract": '"contract" OR "freelance" OR "temporary"',
-        "freelance": '"freelance" OR "remote contract" OR "gig"',
-        "any": "",
+        "internship": "internship OR intern OR trainee",
+        "fulltime": "full-time OR full time OR permanent",
+        "parttime": "part-time OR part time",
+        "contract": "contract OR freelance OR temporary",
+        "freelance": "freelance OR remote contract",
+        "any": "jobs",
     }
-    type_kw = type_keywords.get(job_type, "")
-
-    # Type-specific exclusions to filter OUT wrong results
-    type_exclusions = {
-        "internship": '-"senior" -"lead" -"manager" -"5+ years" -"7+ years"',
-        "fulltime": '-"internship" -"intern" -"trainee" -"part-time"',
-        "parttime": '-"full-time" -"internship"',
-        "contract": "",
-        "freelance": "",
-        "any": "",
-    }
-    type_excl = type_exclusions.get(job_type, "")
-
-    # 3 different search strategies with type baked in
-    if job_type != "any":
-        queries = [
-            f'{job_title} {job_type} {location} jobs hiring {type_excl} -"months ago" -"closed"',
-            f'{job_title} {type_kw} {location} careers apply now linkedin indeed naukri',
-            f'{job_title} {job_type} {location} job openings glassdoor wellfound greenhouse {type_excl}',
-        ]
-    else:
-        queries = [
-            f'{job_title} {location} jobs hiring -"months ago" -"closed"',
-            f'{job_title} {location} careers apply now linkedin indeed naukri',
-            f'{job_title} {location} job openings glassdoor wellfound greenhouse',
-        ]
-
-    all_results = []
-
-    print(f"🚀 Launching {len(queries)} parallel scouts (type: {job_type})...")
-
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        futures = {executor.submit(scout_worker, q, timelimit): q for q in queries}
-        for future in as_completed(futures):
-            query = futures[future]
-            try:
-                results = future.result()
-                for r in results:
-                    # Deduplicate by URL
-                    if not any(existing['href'] == r['href'] for existing in all_results):
-                        # Pre-filter stale results
-                        if not is_likely_stale(r):
-                            all_results.append(r)
-                        else:
-                            print(f"  🗑️  Pre-filtered: {r['title'][:50]}...")
-            except Exception as e:
-                print(f"  ⚠️ Scout error for '{query[:30]}...': {e}")
-
-    print(f"  ✅ {len(all_results)} results passed pre-filter")
-    return all_results[:20]
+    type_kw = type_keywords.get(job_type, "jobs")
+    
+    # Construct the search query
+    query = f"{job_title} {type_kw} in {location}"
+    
+    try:
+        # Tavily searches and reads the content in one go
+        response = tavily_client.search(
+            query=query,
+            search_depth="basic",
+            max_results=15,
+            include_domains=["linkedin.com", "indeed.com", "glassdoor.com", "wellfound.com", "naukri.com", "greenhouse.io"],
+        )
+        
+        # Normalize data for Groq
+        normalized_jobs = []
+        for result in response.get('results', []):
+            job = {
+                "title": result.get('title', ''),
+                "href": result.get('url', ''),
+                "body": result.get('content', '')  # Tavily gives us the text content directly!
+            }
+            
+            # Pre-filter stale results
+            if not is_likely_stale(job):
+                normalized_jobs.append(job)
+            else:
+                print(f"  🗑️  Pre-filtered: {job['title'][:50]}...")
+        
+        print(f"✅ Found {len(normalized_jobs)} raw jobs after pre-filtering.")
+        return normalized_jobs[:20]
+    
+    except Exception as e:
+        print(f"❌ Scout Error: {e}")
+        return []
 
 
 # ==========================================

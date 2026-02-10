@@ -23,5 +23,5 @@ sniffio
 tqdm
 typing_extensions
 urllib3
-duckduckgo-search
+tavily-python
 PyPDF2
