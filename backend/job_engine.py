@@ -141,11 +141,11 @@ def scout_for_jobs(job_title, location, time_filter="past_week", job_type="any")
     
     try:
         # Tavily searches and reads the content in one go
+        # NO domain restrictions - search the entire web for job postings
         response = tavily_client.search(
             query=query,
             search_depth="basic",
-            max_results=15,
-            include_domains=["linkedin.com", "indeed.com", "glassdoor.com", "wellfound.com", "naukri.com", "greenhouse.io"],
+            max_results=25,  # Increased for more diverse results
         )
         
         # Normalize data for Groq
