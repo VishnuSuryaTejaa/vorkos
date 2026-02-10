@@ -1,10 +1,12 @@
 from flask import Flask, request, jsonify
-try:
-    from backend.job_engine import scout_for_jobs, deep_read_jobs, analyze_jobs_with_groq
-    from backend.job_memory import filter_new_jobs, mark_jobs_seen, get_seen_count, clear_memory
-except ImportError:
-    from job_engine import scout_for_jobs, deep_read_jobs, analyze_jobs_with_groq
-    from job_memory import filter_new_jobs, mark_jobs_seen, get_seen_count, clear_memory
+import os
+import sys
+
+# Ensure backend directory is in python path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from job_engine import scout_for_jobs, deep_read_jobs, analyze_jobs_with_groq
+from job_memory import filter_new_jobs, mark_jobs_seen, get_seen_count, clear_memory
 import os
 import io
 import PyPDF2
