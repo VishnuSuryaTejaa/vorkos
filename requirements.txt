@@ -6,4 +6,5 @@ groq
 tavily-python
 python-dotenv
 requests
-PyPDF2 
+PyPDF2
+gunicorn
