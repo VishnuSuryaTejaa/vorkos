@@ -1,6 +1,10 @@
 from flask import Flask, request, jsonify
-from job_engine import scout_for_jobs, deep_read_jobs, analyze_jobs_with_groq
-from job_memory import filter_new_jobs, mark_jobs_seen, get_seen_count, clear_memory
+try:
+    from backend.job_engine import scout_for_jobs, deep_read_jobs, analyze_jobs_with_groq
+    from backend.job_memory import filter_new_jobs, mark_jobs_seen, get_seen_count, clear_memory
+except ImportError:
+    from job_engine import scout_for_jobs, deep_read_jobs, analyze_jobs_with_groq
+    from job_memory import filter_new_jobs, mark_jobs_seen, get_seen_count, clear_memory
 import os
 import io
 import PyPDF2
