@@ -506,12 +506,10 @@ def analyze_jobs_with_groq(job_list, job_title, location, api_key, time_filter="
 
     print("⚡ Groq Forensic Analysis starting...")
 
-    print("⚡ Groq Forensic Analysis starting...")
-
     # Define the core analysis function
-    def execute_analysis(api_key, key_name):
-        print(f"🤖 Agent activated using {key_name}...")
-        client = Groq(api_key=api_key)
+    def execute_analysis(current_api_key, key_name):
+        print(f"🤖 Agent activated using {key_name} key...")
+        client = Groq(api_key=current_api_key)
         
         # --- 1. Prepare Evidence ---
         job_text = ""
@@ -630,35 +628,32 @@ def analyze_jobs_with_groq(job_list, job_title, location, api_key, time_filter="
         )
         return chat_completion.choices[0].message.content
 
-    # --- EXECUTION STRATEGY: Round Robin + Failover ---
+    # --- EXECUTION STRATEGY: STRICT PRIMARY → BACKUP FAILOVER ---
     
-    # 1. Get the assigned key for this request (Round Robin)
-    current_key, key_name = key_manager.get_next_key()
+    # 1. Attempt with Primary Key
+    primary_key = os.environ.get("GROQ_API_KEY") or api_key
+    backup_key = os.environ.get("GROQ_API_KEY_BACKUP")
     
-    if not current_key:
-        return "❌ Logic Error: No API keys configured in backend."
+    if not primary_key:
+        return "❌ Configuration Error: No Primary API Key found."
 
     try:
-        return execute_analysis(current_key, key_name)
+        return execute_analysis(primary_key, "PRIMARY")
     except Exception as e:
         error_str = str(e)
         
         # Check for Rate Limit (429)
         if "429" in error_str or "rate_limit" in error_str.lower():
-            print(f"⚠️ {key_name} hit RATE LIMIT! initiating failover protocol...")
+            print(f"⚠️ Primary Key hit RATE LIMIT! Initiating failover protocol...")
             
-            # 2. Get the FAILOVER Key
-            failover_key, failover_name = key_manager.get_failover_key(current_key)
-            
-            if failover_key:
-                print(f"🔄 Failover: Retrying with {failover_name}...")
+            if backup_key:
+                print(f"🔄 Failover: Retrying with BACKUP key...")
                 try:
-                    return execute_analysis(failover_key, failover_name)
+                    return execute_analysis(backup_key, "BACKUP 🛡️")
                 except Exception as e2:
-                    return f"❌ Critical Failure: Both API keys failed. Error: {str(e2)}"
+                    return f"❌ Critical Failure: Both API keys failed. Backup Error: {str(e2)}"
             else:
-                return f"❌ Rate limit hit. I only have {len(key_manager.keys)} API Key(s) loaded. Please CHECK Configuration."
+                return f"❌ Rate limit hit on Primary Key and NO Backup Key configured."
         
         # Return other errors immediately
         return f"❌ Analysis Error: {error_str}"
-
