@@ -17,8 +17,12 @@ load_dotenv(env_path)
 
 app = Flask(__name__)
 
-# Groq API key for Llama 3.3 analysis
+# Groq API keys for Llama 3.3 analysis
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_API_KEY_BACKUP = os.getenv("GROQ_API_KEY_BACKUP")
+
+# API Key usage tracker for load balancing
+API_KEY_USAGE = {"primary": 0, "backup": 0}
 
 # In-memory resume storage (persists while server is running)
 USER_RESUME = {"text": ""}
@@ -246,13 +250,24 @@ def hunt_jobs():
     if new_jobs:
         all_jobs = deep_read_jobs(all_jobs, max_jobs=5)
 
-    # --- STEP 4: AI Analysis with Resume ---
+    # --- STEP 4: AI Analysis with Resume + API Key Rotation ---
+    # Rotate between PRIMARY and BACKUP keys to distribute load
+    if GROQ_API_KEY_BACKUP and API_KEY_USAGE["backup"] < API_KEY_USAGE["primary"]:
+        current_key = GROQ_API_KEY_BACKUP
+        API_KEY_USAGE["backup"] += 1
+        key_name = "BACKUP"
+    else:
+        current_key = GROQ_API_KEY
+        API_KEY_USAGE["primary"] += 1
+        key_name = "PRIMARY"
+    
     resume_text = USER_RESUME.get("text", "")
     print(f"📋 Resume: {'Loaded (' + str(len(resume_text)) + ' chars)' if resume_text else 'Not provided'}")
+    print(f"🔑 Using {key_name} API key (Primary: {API_KEY_USAGE['primary']}, Backup: {API_KEY_USAGE['backup']})")
     print(f"⚡ Analyzing {len(all_jobs)} results with Groq...")
 
     analysis = analyze_jobs_with_groq(
-        all_jobs, job_title, location, GROQ_API_KEY,
+        all_jobs, job_title, location, current_key,  # Use rotated key
         time_filter=time_filter,
         resume_text=resume_text,
         job_type=job_type

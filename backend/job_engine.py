@@ -24,10 +24,15 @@ STALE_KEYWORDS = [
     "months ago", "month ago", "year ago", "years ago", 
     "weeks ago",  # For strict time filtering
     
-    # Status indicators
-    "closed", "expired", "filled",
-    "no longer accepting", "position filled", "this job is closed",
+    # Status indicators - COMPREHENSIVE
+    "closed", "expired", "filled", 
+    "job has expired", "job expired", "has expired",
+    "no longer accepting", "no longer available", "is no longer available",
+    "not accepting applications", "no longer accepts applications",
+    "position filled", "this job is closed", "job is closed",
     "application deadline has passed", "position has been filled",
+    "expired and no longer", "you're looking for is no longer",
+    "job you're looking for is no longer", "this job is no longer",
 ]
 
 # Domains that are NOT job boards
