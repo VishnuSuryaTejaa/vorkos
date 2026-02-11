@@ -264,13 +264,13 @@ def fetch_full_job_content(url):
         return ""
 
 
-def deep_read_jobs(jobs, max_jobs=6):
+def deep_read_jobs(jobs, max_jobs=20):
     """
-    UPGRADE 1: For the top N jobs, fetch full page content in parallel.
-    This gives the AI 2000 chars of context instead of ~160 char snippets.
-    Reduced max_jobs from 8 to 6 to save tokens and avoid Rate Limits.
+    CRITICAL: Deep read ALL jobs to get full page content with REAL dates.
+    Tavily snippets often say "Posted today" but actual page shows old dates.
+    Increased max_jobs to ensure we validate ALL job dates properly.
     """
-    print(f"📖 Deep reading top {min(len(jobs), max_jobs)} job pages...")
+    print(f"📖 Deep reading ALL {min(len(jobs), max_jobs)} job pages for date validation...")
 
     def read_single(job):
         content = fetch_full_job_content(job['href'])
@@ -428,13 +428,27 @@ def analyze_jobs_with_groq(job_list, job_title, location, api_key, time_filter="
         You are an Elite Technical Recruiter and Forensic Job Analyst.
         Your standard is perfection. You DO NOT tolerate old, stale, or irrelevant results.
 
+        ⚠️ CRITICAL DATE VALIDATION RULES ⚠️
+        The job listings you receive may contain MISLEADING date information in snippets.
+        You MUST validate dates using the FULL CONTENT field.
+        
+        DATE VALIDATION PROTOCOL:
+        1. Check the FULL CONTENT for date indicators: "years ago", "months ago", "weeks ago", "days ago"
+        2. If you see "2 years ago", "6 months ago", "3 weeks ago" in content → REJECT IMMEDIATELY
+        3. If no clear recent date is visible → ASSUME IT'S OLD and REJECT
+        4. ONLY accept jobs that explicitly show: "today", "yesterday", "1 day ago", "2 days ago" for past_day filter
+        5. For past_week: ONLY accept "today", "yesterday", "X days ago" where X ≤ 7
+        6. If a job page shows date indicators like "2yr", "6yr", "months" → IMMEDIATE REJECTION
+
         Your Prime Directives:
         1. FILTER RUTHLESSLY: {freshness_persona.get(time_filter, freshness_persona["past_week"])}
-        2. JOB TYPE FILTER: {job_type_instruction}
-        3. DETECT SEO SPAM: Articles, LinkedIn profiles (not job posts), forums, tutorials — BURN THEM.
-        4. PRIORITIZE "NEW" JOBS: Jobs marked "NEW ✨" should rank higher.
-        5. CHECK FOR "CLOSED": If content says "closed", "expired", "position filled" — REJECT.
-        6. NEVER INVENT: If fewer than 3 good jobs exist, stop early. Do NOT hallucinate.
+        2. DATE VALIDATION: Check FULL CONTENT for actual dates. Snippets LIE. Trust only full page content.
+        3. JOB TYPE FILTER: {job_type_instruction}
+        4. DETECT SEO SPAM: Articles, LinkedIn profiles (not job posts), forums, tutorials — BURN THEM.
+        5. PRIORITIZE "NEW" JOBS: Jobs marked "NEW ✨" should rank higher.
+        6. CHECK FOR "CLOSED": If content says "closed", "expired", "position filled" — REJECT.
+        7. NO DATE VISIBLE = OLD JOB: If you can't clearly see a recent date, REJECT IT.
+        8. NEVER INVENT: If fewer than 3 good jobs exist, stop early. Do NOT hallucinate.
         """
 
         # --- 3. Resume matching section ---
@@ -459,19 +473,27 @@ def analyze_jobs_with_groq(job_list, job_title, location, api_key, time_filter="
         user_prompt = f"""
         MISSION: Find the top 5 ACTIVE{type_display} job openings for '{job_title}' in '{location}'.
         CURRENT DATE: {datetime.date.today().strftime("%B %d, %Y")}
+        TIME FILTER: {time_filter}
 
         Here is the raw data stream from the web:
         {job_text}
 
+        ⚠️ CRITICAL: Each job's CONTENT field contains the FULL PAGE TEXT.
+        The snippet may say "Posted today" but the full content shows the REAL date.
+        You MUST read the FULL CONTENT carefully for date indicators.
+
         --------------------------------------------------
         YOUR ANALYSIS PROCESS (Mental Scratchpad):
         For EACH job match:
-        1. Does the content say "posted 5 months ago", "closed", "expired", "6yr"? → REJECT.
-        2. Is the title a person's name/profile (not a job)? → REJECT.
-        3. Is the URL a blog, tutorial, or forum? → REJECT.
-        4. Is it from a job board or company careers page? → STRONG KEEP.
-        5. Does it mention tech stacks, "hiring", "apply now", salary? → KEEP.
-        6. Does the job type match "{job_type}"? → If not, REJECT.
+        0. FIRST: Scan the CONTENT for date indicators ("years ago", "yr", "months ago", etc.)
+        1. Does CONTENT show "years ago", "yr", "6 months ago", "2 weeks ago"? → REJECT IMMEDIATELY.
+        2. Does the content say "closed", "expired", "filled"? → REJECT.
+        3. Is the title a person's name/profile (not a job)? → REJECT.
+        4. Is the URL a blog, tutorial, or forum? → REJECT.
+        5. Is it from a job board or company careers page? → Check date anyway.
+        6. Does it mention tech stacks, "hiring", "apply now", salary? → Good sign, but CHECK DATE FIRST.
+        7. Does the job type match "{job_type}"? → If not, REJECT.
+        8. Can you see a clear, recent date matching {time_filter}? → If NO, REJECT.
         --------------------------------------------------
         {resume_section}
 
