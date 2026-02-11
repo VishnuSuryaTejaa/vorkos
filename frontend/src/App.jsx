@@ -3,7 +3,6 @@ import axios from 'axios'
 import ReactMarkdown from 'react-markdown'
 import { Search, MapPin, Briefcase, Loader2, ChevronDown, ExternalLink, Clock, FileText, Database, Trash2, ChevronUp, Upload, Tag, Sparkles, Eye, EyeOff, Zap, Shield, BarChart3, Radar } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
-import './App.css'
 
 // Convert bare URLs to clickable markdown links
 function preprocessAnalysis(text) {

@@ -21,7 +21,7 @@ The system acts as a personalized headhunter, filtering out "ghost jobs," mismat
 
 ## 🛠 Tech Stack
 
-* **Frontend:** React, Vite, Tailwind CSS (Custom Design System)
+* **Frontend:** React, Vite, Custom CSS Design System
 * **Backend:** Python, Flask, Gunicorn
 * **AI Inference:** Groq Cloud (Llama 3.3 70B Versatile)
 * **Web Search:** Tavily AI (Professional Search API)
