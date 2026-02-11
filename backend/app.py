@@ -240,12 +240,13 @@ def hunt_jobs():
             "analysis": "❌ No fresh jobs found. Try 'Past Month' filter or different search terms."
         })
 
-    # --- STEP 2: SQLite Dedup ---
-    new_jobs, seen_jobs = filter_new_jobs(raw_jobs)
-    print(f"💾 Memory check: {len(new_jobs)} NEW, {len(seen_jobs)} already seen")
-
-    # Combine: new jobs first, then seen jobs
-    all_jobs = new_jobs + seen_jobs
+    # --- STEP 2: No Deduplication (Per User Request) ---
+    # Always show fresh results, no pre-stored job filtering
+    all_jobs = raw_jobs
+    new_jobs = raw_jobs  # All treated as new
+    seen_jobs = []
+    
+    print(f"💾 Memory: DISABLED - Showing all {len(all_jobs)} fresh jobs")
 
     # --- STEP 3: Deep Reader ---
     if new_jobs:
@@ -272,23 +273,23 @@ def hunt_jobs():
         job_type=job_type
     )
 
-    # --- STEP 5: Store new jobs in memory ---
-    if new_jobs:
-        mark_jobs_seen(new_jobs, job_title, location)
-        print(f"💾 Stored {len(new_jobs)} new jobs in memory")
-
-    print(f"✅ Hunt complete! Total: {len(all_jobs)}, New: {len(new_jobs)}")
+    # --- STEP 5: No Memory Storage (Disabled) ---
+    # Job memory disabled - users get fresh results every time
+    # if new_jobs:
+    #     mark_jobs_seen(new_jobs, job_title, location)
+    
+    print(f"✅ Hunt complete! Total: {len(all_jobs)} fresh jobs (no dedup)")
     print(f"{'='*60}\n")
 
     return jsonify({
         "jobs_found": len(all_jobs),
-        "new_jobs": len(new_jobs),
-        "seen_jobs": len(seen_jobs),
+        "new_jobs": len(all_jobs),  # All are new (no dedup)
+        "seen_jobs": 0,  # Always 0 (no memory)
         "raw_jobs": [{
             "title": j["title"],
             "href": j["href"],
             "body": j["body"],
-            "is_new": j.get("is_new", True)
+            "is_new": True  # All marked as new
         } for j in all_jobs],
         "analysis": analysis
     })
