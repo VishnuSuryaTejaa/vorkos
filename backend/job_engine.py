@@ -20,8 +20,14 @@ TIME_LIMITS = {
 
 # Keywords that indicate a stale/closed/irrelevant result
 STALE_KEYWORDS = [
-    "months ago", "year ago", "years ago", "closed", "expired",
+    # Time indicators
+    "months ago", "month ago", "year ago", "years ago", 
+    "weeks ago",  # For strict time filtering
+    
+    # Status indicators
+    "closed", "expired", "filled",
     "no longer accepting", "position filled", "this job is closed",
+    "application deadline has passed", "position has been filled",
 ]
 
 # Domains that are NOT job boards
@@ -33,21 +39,54 @@ JUNK_DOMAINS = [
 ]
 
 
-def is_likely_stale(result):
-    """Pre-filter: check if a result looks stale or irrelevant."""
+def is_likely_stale(result, time_filter="past_week"):
+    """Pre-filter: check if a result looks stale or irrelevant based on time_filter."""
     title = result.get('title', '').lower()
     body = result.get('body', '').lower()
     href = result.get('href', '').lower()
     combined = f"{title} {body}"
 
+    # Check global stale keywords
     for keyword in STALE_KEYWORDS:
         if keyword in combined:
             return True
 
+    # Time-filter specific checks (AGGRESSIVE filtering)
+    if time_filter == "past_day":
+        # For 24hr filter, reject anything with days/weeks/months
+        strict_patterns = [
+            "days ago", "day ago", " 1 day ago", " 2 days ago",
+            "yesterday", "week ago", "weeks ago", "month ago", "months ago"
+        ]
+        if any(pattern in combined for pattern in strict_patterns):
+            return True
+            
+        # Also reject if it says "posted" with a specific old date
+        if re.search(r'(posted|published).*\d{1,2}\s+(january|february|march|april|may|june|july|august|september|october|november|december)', combined):
+            return True
+            
+    elif time_filter == "past_week":
+        # For week filter, reject weeks/months
+        week_patterns = ["weeks ago", "month ago", "months ago"]
+        if any(pattern in combined for pattern in week_patterns):
+            return True
+            
+    # For all filters, check if mentions specific old months
+    recent_month_check = re.search(r'(posted|published|updated).*\d{1,2}\s+months?\s+ago', combined)
+    if recent_month_check:
+        # Extract number of months
+        month_match = re.search(r'(\d+)\s+months?\s+ago', combined)
+        if month_match:
+            months_ago = int(month_match.group(1))
+            if months_ago >= 1:  # Any mention of months ago = stale
+                return True
+
+    # Check junk domains
     for domain in JUNK_DOMAINS:
         if domain in href:
             return True
 
+    # Check for old years (2019-2024)
     old_year_pattern = re.compile(r'\b(201\d|202[0-4])\b')
     if old_year_pattern.search(combined):
         date_context = re.compile(r'(posted|published|updated|date|ago|since).{0,30}(201\d|202[0-4])')
@@ -269,7 +308,7 @@ def scout_for_jobs(job_title, location, time_filter="past_week", job_type="any")
     if not tavily_client:
         return []
     
-    print(f"🕵️ Tavily scouting for: {job_title} in {location} (type: {job_type})...")
+    print(f"🕵️ Tavily scouting for: {job_title} in {location} (type: {job_type}, time: {time_filter})...")
     
     # Build type-specific search keywords
     type_keywords = {
@@ -282,16 +321,25 @@ def scout_for_jobs(job_title, location, time_filter="past_week", job_type="any")
     }
     type_kw = type_keywords.get(job_type, "jobs")
     
+    # Map time_filter to Tavily days parameter (STRICT filtering at source)
+    time_to_days = {
+        "past_day": 1,     # Only last 24 hours
+        "past_week": 7,    # Only last 7 days
+        "past_month": 30,  # Only last 30 days
+    }
+    days_limit = time_to_days.get(time_filter, 7)
+    
     # Construct the search query
     query = f"{job_title} {type_kw} in {location}"
     
     try:
         # Tavily searches and reads the content in one go
-        # NO domain restrictions - search the entire web for job postings
+        # Using days parameter for strict time filtering
         response = tavily_client.search(
             query=query,
             search_depth="basic",
-            max_results=25,  # Increased for more diverse results
+            max_results=25,
+            days=days_limit,  # CRITICAL: Only return results from last N days
         )
         
         # Normalize data for Groq
@@ -304,7 +352,7 @@ def scout_for_jobs(job_title, location, time_filter="past_week", job_type="any")
             }
             
             # Pre-filter: stale results AND search/aggregator pages
-            is_stale = is_likely_stale(job)
+            is_stale = is_likely_stale(job, time_filter)  # Pass time_filter for strict checking
             is_search = is_search_page(job['href'])
             
             if not is_stale and not is_search:
@@ -314,7 +362,7 @@ def scout_for_jobs(job_title, location, time_filter="past_week", job_type="any")
                 if is_stale and is_search:
                     reason = "stale + search page"
                 elif is_stale:
-                    reason = "stale"
+                    reason = f"stale (filter: {time_filter})"
                 else:
                     reason = "search/aggregator page"
                 print(f"  🗑️  Filtered ({reason}): {job['title'][:50]}...")
