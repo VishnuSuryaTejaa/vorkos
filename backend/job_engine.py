@@ -383,18 +383,45 @@ def scout_for_jobs(job_title, location, time_filter="past_week", job_type="any")
 # ==========================================
 # THE BRAIN — God-Tier Prompting + Resume Matching
 # ==========================================
-def analyze_jobs_with_groq(job_list, job_title, location, api_key, time_filter="past_week", resume_text="", job_type="any"):
+def analyze_jobs_with_groq(job_list, job_title, location, api_keys, time_filter="past_week", resume_text="", job_type="any"):
     """
     UPGRADE 2: Now includes Resume Matchmaker for Fit Score + Gap analysis.
     Uses deep-read content when available.
-    Automatically falls back to backup API key if rate limit is hit.
+    
+    UPGRADE 3: 3-KEY SEQUENTIAL FAILOVER SYSTEM
+    - Tries PRIMARY key first
+    - If rate limit (429), tries BACKUP key
+    - If still rate limit, tries TERTIARY key
+    - Only fails if all 3 keys exhausted
+    
+    Args:
+        api_keys: Dict with 'primary', 'backup', 'tertiary' keys
     """
     if not job_list:
         return "No jobs found to analyze."
 
     print("⚡ Groq Forensic Analysis starting...")
+    
+    # Prepare list of keys to try (in order)
+    keys_to_try = []
+    if api_keys.get("primary"):
+        keys_to_try.append(("PRIMARY", api_keys["primary"]))
+    if api_keys.get("backup"):
+        keys_to_try.append(("BACKUP", api_keys["backup"]))
+    if api_keys.get("tertiary"):
+        keys_to_try.append(("TERTIARY", api_keys["tertiary"]))
+    
+    if not keys_to_try:
+        return "❌ No API keys configured. Please add API keys to .env file."
+    
+    print(f"🔑 {len(keys_to_try)} API key(s) available for failover")
 
     # Define the core analysis function
+    def execute_analysis(current_api_key, key_name):
+        print(f"🤖 Agent activated using {key_name} key...")
+        client = Groq(api_key=current_api_key)
+        
+        # --- 1. Prepare Evidence ---
     def execute_analysis(current_api_key, key_name):
         print(f"🤖 Agent activated using {key_name} key...")
         client = Groq(api_key=current_api_key)
@@ -531,39 +558,50 @@ def analyze_jobs_with_groq(job_list, job_title, location, api_key, time_filter="
         chat_completion = client.chat.completions.create(
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
+                {"role": "user", "content": user_prompt},
             ],
             model="llama-3.3-70b-versatile",
             temperature=0.3,
         )
         return chat_completion.choices[0].message.content
 
-    # --- EXECUTION STRATEGY: STRICT PRIMARY → BACKUP FAILOVER ---
+    # --- 3-KEY SEQUENTIAL FAILOVER LOGIC ---
+    last_error = None
     
-    # 1. Attempt with Primary Key
-    primary_key = os.environ.get("GROQ_API_KEY") or api_key
-    backup_key = os.environ.get("GROQ_API_KEY_BACKUP")
-    
-    if not primary_key:
-        return "❌ Configuration Error: No Primary API Key found."
-
-    try:
-        return execute_analysis(primary_key, "PRIMARY")
-    except Exception as e:
-        error_str = str(e)
-        
-        # Check for Rate Limit (429)
-        if "429" in error_str or "rate_limit" in error_str.lower():
-            print(f"⚠️ Primary Key hit RATE LIMIT! Initiating failover protocol...")
+    for i, (key_name, api_key) in enumerate(keys_to_try):
+        try:
+            print(f"🔑 Trying {key_name} key ({i+1}/{len(keys_to_try)})...")
+            result = execute_analysis(api_key, key_name)
+            print(f"✅ {key_name} key succeeded!")
+            return result
             
-            if backup_key:
-                print(f"🔄 Failover: Retrying with BACKUP key...")
-                try:
-                    return execute_analysis(backup_key, "BACKUP 🛡️")
-                except Exception as e2:
-                    return f"❌ Critical Failure: Both API keys failed. Backup Error: {str(e2)}"
+        except Exception as e:
+            error_str = str(e)
+            last_error = error_str
+            
+            # Check for Rate Limit (429)
+            if "429" in error_str or "rate_limit" in error_str.lower() or "rate limit" in error_str.lower():
+                print(f"⚠️  {key_name} key hit RATE LIMIT!")
+                
+                # If there are more keys to try, continue
+                if i < len(keys_to_try) - 1:
+                    next_key_name = keys_to_try[i+1][0]
+                    print(f"🔄 Failover: Trying {next_key_name} key next...")
+                    continue  # Try next key
+                else:
+                    # All keys exhausted
+                    print(f"❌ All {len(keys_to_try)} API keys hit rate limits!")
+                    return f"❌ All {len(keys_to_try)} API keys exhausted due to rate limits. Please wait or add more keys. Last error: {error_str[:200]}"
             else:
-                return f"❌ Rate limit hit on Primary Key and NO Backup Key configured."
-        
-        # Return other errors immediately
-        return f"❌ Analysis Error: {error_str}"
+                # Non-rate-limit error
+                print(f"❌ {key_name} key failed with error: {error_str[:100]}")
+                
+                # Try next key for non-rate-limit errors too
+                if i < len(keys_to_try) - 1:
+                    print(f"🔄 Trying next key...")
+                    continue
+                else:
+                    return f"❌ Analysis Error (all keys tried): {error_str}"
+    
+    # Fallback (should never reach here)
+    return f"❌ Unexpected error: {last_error}"

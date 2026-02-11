@@ -17,12 +17,13 @@ load_dotenv(env_path)
 
 app = Flask(__name__)
 
-# Groq API keys for Llama 3.3 analysis
+# Groq API keys for Llama 3.3 analysis (3-key failover system)
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_API_KEY_BACKUP = os.getenv("GROQ_API_KEY_BACKUP")
+GROQ_API_KEY_TERTIARY = os.getenv("GROQ_API_KEY_TERTIARY")
 
-# API Key usage tracker for load balancing
-API_KEY_USAGE = {"primary": 0, "backup": 0}
+# API Key usage tracker for load balancing (3 keys)
+API_KEY_USAGE = {"primary": 0, "backup": 0, "tertiary": 0}
 
 # In-memory resume storage (persists while server is running)
 USER_RESUME = {"text": ""}
@@ -250,24 +251,22 @@ def hunt_jobs():
     if new_jobs:
         all_jobs = deep_read_jobs(all_jobs, max_jobs=5)
 
-    # --- STEP 4: AI Analysis with Resume + API Key Rotation ---
-    # Rotate between PRIMARY and BACKUP keys to distribute load
-    if GROQ_API_KEY_BACKUP and API_KEY_USAGE["backup"] < API_KEY_USAGE["primary"]:
-        current_key = GROQ_API_KEY_BACKUP
-        API_KEY_USAGE["backup"] += 1
-        key_name = "BACKUP"
-    else:
-        current_key = GROQ_API_KEY
-        API_KEY_USAGE["primary"] += 1
-        key_name = "PRIMARY"
+    # --- STEP 4: AI Analysis with Resume + API Key Rotation (3 keys) ---
+    # Pass ALL 3 keys to analyze_jobs_with_groq for automatic failover
+    # It will try them sequentially if any hit rate limits
+    api_keys = {
+        "primary": GROQ_API_KEY,
+        "backup": GROQ_API_KEY_BACKUP,
+        "tertiary": GROQ_API_KEY_TERTIARY
+    }
     
     resume_text = USER_RESUME.get("text", "")
     print(f"📋 Resume: {'Loaded (' + str(len(resume_text)) + ' chars)' if resume_text else 'Not provided'}")
-    print(f"🔑 Using {key_name} API key (Primary: {API_KEY_USAGE['primary']}, Backup: {API_KEY_USAGE['backup']})")
+    print(f"🔑 Using 3-key failover system (Keys available: {sum(1 for k in api_keys.values() if k)})")
     print(f"⚡ Analyzing {len(all_jobs)} results with Groq...")
 
     analysis = analyze_jobs_with_groq(
-        all_jobs, job_title, location, current_key,  # Use rotated key
+        all_jobs, job_title, location, api_keys,  # Pass all keys for failover
         time_filter=time_filter,
         resume_text=resume_text,
         job_type=job_type
