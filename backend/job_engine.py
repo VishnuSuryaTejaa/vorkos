@@ -500,11 +500,15 @@ def analyze_jobs_with_groq(job_list, job_title, location, api_keys, time_filter=
 
         # Job type display
         type_display = f" ({job_type.upper()})" if job_type != "any" else ""
+        
+        # LAYER 2: Inject TODAY'S DATE for mathematical validation
+        today_str = datetime.date.today().strftime("%B %d, %Y")  # e.g., "February 11, 2026"
 
         # --- 4. The Mission ---
         user_prompt = f"""
+        🗓️ TODAY'S DATE is: {today_str}
+        
         MISSION: Find the top 5 ACTIVE{type_display} job openings for '{job_title}' in '{location}'.
-        CURRENT DATE: {datetime.date.today().strftime("%B %d, %Y")}
         TIME FILTER: {time_filter}
 
         Here is the raw data stream from the web:
@@ -513,6 +517,8 @@ def analyze_jobs_with_groq(job_list, job_title, location, api_keys, time_filter=
         ⚠️ CRITICAL: Each job's CONTENT field contains the FULL PAGE TEXT.
         The snippet may say "Posted today" but the full content shows the REAL date.
         You MUST read the FULL CONTENT carefully for date indicators.
+        
+        ⚠️ MATHEMATICAL DATE VALIDATION:
 
         --------------------------------------------------
         YOUR ANALYSIS PROCESS (Mental Scratchpad):
@@ -561,7 +567,7 @@ def analyze_jobs_with_groq(job_list, job_title, location, api_keys, time_filter=
                 {"role": "user", "content": user_prompt},
             ],
             model="llama-3.3-70b-versatile",
-            temperature=0.3,
+            temperature=0,  # ZERO creativity - strict logical filtering only!
         )
         return chat_completion.choices[0].message.content
 
