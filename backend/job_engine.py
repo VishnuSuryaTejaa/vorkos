@@ -61,15 +61,83 @@ def is_search_page(url):
     """
     Detect if a URL is a search/aggregator/filter page vs a direct job posting.
     
-    We want to REJECT search pages and KEEP direct job postings.
+    We want to REJECT:
+    - Search pages (indeed.com/jobs?q=...)
+    - Job board index/listing pages (python.org/jobs, company.com/careers)
+    - Filter pages
+    
+    We want to KEEP:
+    - Direct job postings with specific IDs (indeed.com/viewjob?jk=123)
+    - Company-specific job pages (company.com/careers/position-123)
     
     Returns:
-        True if the URL is a search/aggregator page (should be filtered out)
+        True if the URL is a search/listing page (should be filtered out)
         False if it's a direct job posting (should be kept)
     """
     url_lower = url.lower()
     
-    # Common search/aggregator page patterns (REJECT these)
+    # Extract the path part (without domain and query params) for analysis
+    from urllib.parse import urlparse
+    parsed = urlparse(url_lower)
+    path = parsed.path.rstrip('/')  # Remove trailing slash
+    query = parsed.query
+    
+    # FIRST: Check for confirmed direct job posting patterns (KEEP these)
+    direct_job_patterns = [
+        # Indeed
+        '/viewjob', '/rc/clk?jk=', '/company/', '/cmp/',
+        
+        # LinkedIn
+        '/jobs/view/', '/postings/',
+        
+        # Glassdoor
+        '/job-listing/', '/partner/joblisting',
+        
+        # Naukri (specific job pages)
+        '/job-listings/', '-job-details-',
+        
+        # Monster
+        '/job-opening/',
+        
+        # Company career pages with specific job IDs/slugs
+        '/position/', '/opening/', '/role/',
+        '/vacancy/', '/vacancies/', '/apply/',
+        
+        # ATS systems (Greenhouse, Lever, Workday)
+        'greenhouse.io/jobs/', 'lever.co/jobs/', 'myworkdayjobs.com/',
+        'bamboohr.com/jobs/', 'smartrecruiters.com/jobs/',
+        
+        # Job-specific indicators
+        '/jobid=', '/job_id=', '/job-id-', '/posting-',
+    ]
+    
+    for pattern in direct_job_patterns:
+        if pattern in url_lower:
+            return False  # Confirmed job posting, KEEP it
+    
+    # SECOND: Aggressive filtering of listing/index pages
+    
+    # Pattern 1: Job board index pages (python.org/jobs, github.com/jobs)
+    # These typically end with /jobs or /careers without further path
+    if path.endswith('/jobs') or path == '/jobs':
+        return True  # It's a listing page, FILTER it
+    
+    if path.endswith('/careers') or path == '/careers':
+        # Exception: if there's a slug after /careers/, it might be a specific job
+        if path.count('/') <= 1:  # Just /careers, no job slug
+            return True
+    
+    # Pattern 2: Job board paths without specific IDs
+    listing_paths = [
+        '/jobs/all', '/jobs/list', '/jobs/latest', '/jobs/open',
+        '/careers/all', '/careers/list', '/careers/open',
+        '/opportunities', '/openings',
+    ]
+    for listing_path in listing_paths:
+        if listing_path in path:
+            return True
+    
+    # Pattern 3: Search/filter query patterns
     search_patterns = [
         # Generic search patterns
         '/jobs?', '/jobs/search', '/search?', '/search/',
@@ -83,61 +151,54 @@ def is_search_page(url):
         'naukri.com/jobs-in', 'naukri.com/-jobs',
         
         # Indeed patterns
-        '/jobs?', '/pagead/clk?mo=r&',  # Indeed's redirect pages
+        '/pagead/clk?mo=r&',  # Indeed's redirect pages
         
         # Filter/category pages
         '/browse/', '/category/', '/filter/',
     ]
     
-    # Check for search patterns
     for pattern in search_patterns:
         if pattern in url_lower:
-            # Double-check it's not a false positive
-            # Some job IDs might contain these strings
-            if '/viewjob' in url_lower or '/jobs/view/' in url_lower:
-                return False  # It's actually a job posting
-            return True  # It's a search page
+            return True  # Search page, FILTER it
     
-    # Direct job posting patterns (if found, definitely NOT a search page)
-    direct_job_patterns = [
-        # Indeed
-        '/viewjob?jk=', '/rc/clk?jk=', '/company/', '/cmp/',
+    # Pattern 4: Query parameters that indicate search/filter (not job-specific)
+    if query:
+        # Has query params - check if they're search-related
+        search_params = ['?q=', '&q=', 'search=', 'filter=', 'location=', 'category=']
+        has_search_param = any(param in url_lower for param in search_params)
         
-        # LinkedIn
-        '/jobs/view/', '/postings/',
+        # Check for job-specific params
+        job_params = ['jk=', 'job_id=', 'jobid=', 'id=', 'posting=', 'gh_jid=']
+        has_job_param = any(param in url_lower for param in job_params)
         
-        # Glassdoor
-        '/job-listing/', '/partner/jobListing',
-        
-        # Naukri (specific job pages)
-        '/job-listings/', '-job-details-',
-        
-        # Monster
-        '/job-opening/',
-        
-        # Company career pages
-        '/careers/', '/positions/', '/opportunities/', '/openings/',
-        '/apply/', '/vacancy/', '/vacancies/',
-        
-        # Greenhouse, Lever, Workday
-        'greenhouse.io/jobs/', 'lever.co/jobs/', 'myworkdayjobs.com/',
+        if has_search_param and not has_job_param:
+            return True  # Search params without job ID = listing page
+    
+    # Pattern 5: Specific domain patterns known to be listing pages
+    listing_domains = [
+        # If URL is just domain.com/jobs with nothing after
+        'python.org/jobs',
+        'github.com/jobs',
+        'stackoverflow.com/jobs',
+        'djangojobs.net',
     ]
     
-    for pattern in direct_job_patterns:
-        if pattern in url_lower:
-            return False  # Confirmed direct job posting
+    for domain_pattern in listing_domains:
+        if domain_pattern in url_lower and len(path.split('/')) <= 2:
+            return True
     
-    # Additional heuristic: URLs with query params like ?q= are likely searches
-    # UNLESS they also have job-specific params
-    if ('?q=' in url_lower or '&q=' in url_lower):
-        # Check if it has job-specific params too
-        job_params = ['jk=', 'job_id=', 'jobid=', 'id=', 'posting=']
-        has_job_param = any(param in url_lower for param in job_params)
-        if not has_job_param:
-            return True  # Search page with query param but no job ID
+    # Pattern 6: Path depth heuristic
+    # Most direct job postings have deeper paths or specific identifiers
+    # Example: /careers/engineering/senior-dev-123 (good)
+    # vs: /careers (bad - listing page)
+    if ('/jobs' in path or '/careers' in path):
+        # Count slashes - if path is shallow, likely a listing page
+        path_depth = len([p for p in path.split('/') if p])
+        if path_depth == 1:  # Just /jobs or /careers
+            return True
     
-    # Default: assume it's a job posting (conservative approach)
-    # Better to let some search pages through than filter real jobs
+    # Default: If we're not sure, let it through (conservative)
+    # Better to let some listings through than filter real jobs
     return False
 
 
